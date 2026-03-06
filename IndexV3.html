@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>SKK Maintenance Pro V2.8</title>
+    <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root { --primary: #0984e3; --dark: #2d3436; --bg: #f1f2f6; --danger: #d63031; --success: #00b894; }
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+        body { font-family: -apple-system, sans-serif; background: var(--bg); margin: 0; padding-bottom: 50px; }
+        .top-bar { background: white; padding: 10px 15px; display: flex; align-items: center; gap: 10px; position: sticky; top: 0; z-index: 1000; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        .container { padding: 15px; max-width: 600px; margin: auto; }
+        .card { background: white; border-radius: 16px; padding: 15px; margin-bottom: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); }
+        .machine-card { background: #2d3436; color: white; border-radius: 20px; padding: 20px; margin-bottom: 10px; }
+        .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 15px; }
+        .info-item { background: rgba(255,255,255,0.1); padding: 8px; border-radius: 8px; }
+        .info-label { font-size: 10px; color: #00cec9; font-weight: bold; }
+        .info-value { font-size: 13px; margin-top: 2px; }
+        .gauge-box { position: relative; height: 160px; width: 100%; margin: 10px 0; }
+        .gauge-text { position: absolute; top: 65%; left: 50%; transform: translate(-50%, -50%); text-align: center; }
+        .btn { border: none; border-radius: 10px; padding: 12px; font-weight: bold; cursor: pointer; text-align: center; font-size: 14px; }
+        .btn-blue { background: var(--primary); color: white; width: 100%; }
+        .btn-gray { background: #dfe6e9; color: #333; }
+        .field { width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 10px; margin-bottom: 10px; font-size: 16px; outline: none; }
+        .photo-thumb { width: 75px; height: 75px; object-fit: cover; border-radius: 10px; border: 3px solid transparent; }
+        .photo-thumb.active { border-color: var(--primary); }
+        .gallery-item { position: relative; display: inline-block; margin-right: 8px; margin-bottom: 8px; }
+        .del-btn { position: absolute; top: -8px; right: -8px; background: var(--danger); color: white; width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 2px solid white; font-size: 14px; z-index: 5; }
+        .hist-photo-link { display: inline-block; padding: 4px 8px; background: #e1f5fe; border: 1px solid #b3e5fc; border-radius: 5px; color: #0288d1; text-decoration: none; font-size: 11px; margin: 2px; font-weight: bold; }
+        .hidden { display: none; }
+        .loading-overlay { position: fixed; top:0; left:0; width:100%; height:100%; background:rgba(255,255,255,0.9); z-index:9999; display:none; align-items:center; justify-content:center; flex-direction: column; }
+        #editCanvas { background: #000; width: 100%; border-radius: 12px; touch-action: none; }
+    </style>
+</head>
+<body>
+
+<div id="loading" class="loading-overlay">
+    <div style="border: 4px solid #f3f3f3; border-top: 4px solid var(--primary); border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite;"></div>
+    <div id="loading-text" style="margin-top:10px;">通信中...</div>
+</div>
+
+<div id="view-lock" class="container" style="text-align:center; padding-top: 50px;">
+    <div class="card">
+        <h2 style="color: var(--primary);">SKK Login</h2>
+        <input type="password" id="teamCodeInput" class="field" placeholder="Team Code" style="text-align:center;">
+        <button class="btn btn-blue" onclick="checkTeamCode()">ログイン</button>
+    </div>
+</div>
+
+<div id="main-ui" style="display:none;">
+    <div class="top-bar">
+        <button id="btn-back" class="btn btn-gray hidden" onclick="goBack()">⬅ 戻る</button>
+        <div style="flex-grow: 1; text-align: center; font-weight: bold;">SKK SERVICE</div>
+        <button class="btn btn-blue" style="width: auto; padding: 8px 15px;" onclick="startScanner()">📷 ｽｷｬﾝ</button>
+    </div>
+
+    <div class="container">
+        <div id="view-home" style="text-align:center; padding: 50px 0;">
+            <h3>BIM・NF TEAM</h3>
+            <p>QRコードを読み取ってください</p>
+        </div>
+
+        <div id="view-info" class="hidden">
+            <div class="machine-card">
+                <h2 id="m-name" style="margin:0; font-size: 24px; color: #00cec9;">--</h2>
+                <div id="details-grid" class="info-grid"></div>
+            </div>
+
+            <div class="card">
+                <h4 style="margin:0; text-align:center; color:#636e72;">ライフサイクル</h4>
+                <div class="gauge-box">
+                    <canvas id="lifeGaugeChart"></canvas>
+                    <div class="gauge-text">
+                        <div id="rem-years-val" style="font-size: 32px; font-weight: 900;">--</div>
+                        <div style="font-size: 10px; font-weight: bold;">残り年数</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h4>点検報告</h4>
+                <input type="text" id="f-tech" class="field" placeholder="担当者名">
+                <select id="f-type" class="field"></select>
+                <textarea id="f-desc" class="field" rows="2" placeholder="点検メモ"></textarea>
+                
+                <input type="file" id="f-file" accept="image/*" multiple class="hidden" onchange="handlePhotos(event)">
+                <button class="btn btn-gray" style="width:100%; border: 2px dashed #ccc;" onclick="document.getElementById('f-file').click()">📸 写真撮影・選択</button>
+                <div id="photo-gallery" style="margin-top:15px; display:flex; flex-wrap:wrap;"></div>
+
+                <div id="canvas-wrapper" class="hidden" style="margin-top:10px; background:#2d3436; padding:10px; border-radius:12px;">
+                    <canvas id="editCanvas"></canvas>
+                    <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:5px; margin-top:10px;">
+                        <button class="btn btn-gray" onclick="setMode('pen')">✏️ ペン</button>
+                        <button class="btn btn-gray" onclick="setMode('text')">TXT</button>
+                        <button class="btn btn-blue" style="background:var(--success)" onclick="saveEdit()">✅ 完了</button>
+                    </div>
+                </div>
+                
+                <button class="btn btn-blue" style="margin-top:20px; height:60px; font-size:18px;" onclick="doSubmit()">点検記録を保存</button>
+            </div>
+
+            <div class="card">
+                <h4 style="border-bottom:1px solid #eee; padding-bottom:5px;">最近の履歴</h4>
+                <div id="history-box"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="scannerContainer" class="hidden" style="position:fixed; top:0; left:0; width:100%; height:100%; background:#000; z-index:10000;">
+    <video id="video" style="width:100%; height:85%; object-fit:cover;" playsinline></video>
+    <div style="height:15%; display:flex; align-items:center; justify-content:center; background:#000;">
+        <button class="btn btn-gray" style="width:80%; background:var(--danger); color:white;" onclick="stopScanner()">閉じる</button>
+    </div>
+</div>
+
+<script>
+    const API_URL = "https://script.google.com/macros/s/AKfycbzF1FAEm8zDHplvwN8sNaTdnUIPVNgtNe4VvFH1FkPEi65E5piSIK679Zb3NLsEqi9e/exec"; // PASTE YOUR URL HERE
+    let currentMachine = {}, photoQueue = [], myChart = null, scanStream = null;
+    let canvas, ctx, originalImg, editMode = 'pen', activeIdx = null;
+
+    function checkTeamCode() {
+        if(document.getElementById('teamCodeInput').value === "0001") {
+            localStorage.setItem('skk_authorized', 'true');
+            document.getElementById('view-lock').style.display='none';
+            document.getElementById('main-ui').style.display='block';
+            loadCategories();
+        }
+    }
+    window.onload = () => { if(localStorage.getItem('skk_authorized')==='true') checkTeamCode(); };
+
+    async function loadMachine(guid) {
+        setLoading(true);
+        try {
+            const res = await fetch(`${API_URL}?action=getMachineByGUID&guid=${guid}`);
+            const data = await res.json();
+            if(data.success) {
+                currentMachine = data.machine;
+                document.getElementById('m-name').innerText = data.machine.machineNo || "No Name";
+                
+                const grid = document.getElementById('details-grid');
+                grid.innerHTML = "";
+                Object.keys(data.machine.fullDetails).forEach(k => {
+                    grid.innerHTML += `<div class="info-item"><div class="info-label">${k}</div><div class="info-value">${data.machine.fullDetails[k]}</div></div>`;
+                });
+                
+                renderLifeGauge(data.machine.lifeUsed, data.machine.remYears);
+                loadHistory(guid);
+                document.getElementById('view-info').classList.remove('hidden');
+                document.getElementById('view-home').classList.add('hidden');
+                document.getElementById('btn-back').classList.remove('hidden');
+            }
+        } catch(e) { alert("データ取得エラー"); }
+        setLoading(false);
+    }
+
+    function renderLifeGauge(used, rem) {
+        document.getElementById('rem-years-val').innerText = rem;
+        const ctxChart = document.getElementById('lifeGaugeChart').getContext('2d');
+        if(myChart) myChart.destroy();
+        myChart = new Chart(ctxChart, {
+            type: 'doughnut',
+            data: { datasets: [{ data: [used, 100-used], backgroundColor: ['#0984e3', '#dfe6e9'], borderWidth: 0 }] },
+            options: { cutout: '85%', rotation: -90, circumference: 180, maintainAspectRatio: false }
+        });
+    }
+
+    async function loadHistory(guid) {
+        try {
+            const res = await fetch(`${API_URL}?action=getMaintenanceHistory&guid=${guid}`);
+            const data = await res.json();
+            const container = document.getElementById('history-box');
+            container.innerHTML = data.history.length ? data.history.map(h => {
+                const links = h.photos ? h.photos.split("\n").map((url, i) => 
+                    `<a href="${url}" target="_blank" class="hist-photo-link">画像 ${i+1}</a>`).join('') : "";
+                return `
+                <div style="padding:10px 0; border-bottom:1px solid #eee; font-size:13px;">
+                    <div style="color:#666">${h.date} | ${h.tech}</div>
+                    <b>${h.type}</b>: ${h.desc}
+                    <div style="margin-top:5px; display:flex; flex-wrap:wrap;">${links}</div>
+                </div>`;
+            }).join('') : "履歴はありません";
+        } catch(e) { console.error("History Error"); }
+    }
+
+    async function handlePhotos(e) {
+        const files = Array.from(e.target.files);
+        setLoading(true, "圧縮中...");
+        for(let f of files) {
+            const b64 = await new Promise(r => { const rd = new FileReader(); rd.onload=ev=>r(ev.target.result); rd.readAsDataURL(f); });
+            const compressed = await compressImage(b64);
+            photoQueue.push({ original: compressed, edited: compressed });
+        }
+        renderGallery(); setLoading(false);
+        e.target.value = ""; 
+    }
+
+    function renderGallery() {
+        document.getElementById('photo-gallery').innerHTML = photoQueue.map((p, i) => `
+            <div class="gallery-item">
+                <div class="del-btn" onclick="removePhoto(${i})">×</div>
+                <img src="${p.edited}" class="photo-thumb ${activeIdx===i?'active':''}" onclick="startEdit(${i})">
+            </div>`).join('');
+    }
+
+    function removePhoto(i) { photoQueue.splice(i,1); activeIdx=null; closeEditor(); renderGallery(); }
+
+    function startEdit(i) {
+        activeIdx = i; renderGallery();
+        originalImg = new Image();
+        originalImg.onload = () => {
+            document.getElementById('canvas-wrapper').classList.remove('hidden');
+            canvas = document.getElementById('editCanvas'); ctx = canvas.getContext('2d');
+            const aspect = originalImg.height / originalImg.width;
+            canvas.width = 1000; canvas.height = 1000 * aspect;
+            ctx.drawImage(originalImg, 0, 0, canvas.width, canvas.height);
+            initCanvas();
+            document.getElementById('canvas-wrapper').scrollIntoView({behavior: "smooth"});
+        };
+        originalImg.src = photoQueue[i].original;
+    }
+
+    function saveEdit() {
+        photoQueue[activeIdx].edited = canvas.toDataURL("image/jpeg", 0.7);
+        closeEditor();
+    }
+    function closeEditor() { document.getElementById('canvas-wrapper').classList.add('hidden'); renderGallery(); }
+
+    function initCanvas() {
+        ctx.strokeStyle = "red"; ctx.lineWidth = 10; ctx.lineJoin='round'; ctx.lineCap='round';
+        const getXY = e => {
+            const rect = canvas.getBoundingClientRect();
+            const cx = e.touches ? e.touches[0].clientX : e.clientX;
+            const cy = e.touches ? e.touches[0].clientY : e.clientY;
+            return { x: (cx-rect.left)*(canvas.width/rect.width), y: (cy-rect.top)*(canvas.height/rect.height) };
+        };
+        canvas.onmousedown = canvas.ontouchstart = e => {
+            const {x,y} = getXY(e);
+            if(editMode==='text') { const t=prompt("文字:"); if(t){ ctx.fillStyle="red"; ctx.font="bold 60px sans-serif"; ctx.fillText(t,x,y); } }
+            else { ctx.beginPath(); ctx.moveTo(x,y); canvas.isDrawing=true; }
+        };
+        canvas.onmousemove = canvas.ontouchmove = e => { if(canvas.isDrawing){ e.preventDefault(); const {x,y}=getXY(e); ctx.lineTo(x,y); ctx.stroke(); } };
+        const endDrawing = () => canvas.isDrawing=false;
+        window.onmouseup = window.ontouchend = endDrawing;
+    }
+
+    async function doSubmit() {
+        const tech = document.getElementById('f-tech').value;
+        if(!tech || photoQueue.length === 0) return alert("名前と写真が必要です");
+        setLoading(true, "保存中...");
+        try {
+            const res = await fetch(API_URL, {
+                method: 'POST',
+                body: JSON.stringify({
+                    action: 'addMaintenance', guid: currentMachine.guid, machineNo: currentMachine.machineNo,
+                    technician: tech, maintenanceType: document.getElementById('f-type').value,
+                    description: document.getElementById('f-desc').value, photoList: photoQueue
+                })
+            });
+            const result = await res.json();
+            if(result.success) { 
+                alert("保存しました"); 
+                // Clear the form only
+                document.getElementById('f-desc').value = "";
+                photoQueue = [];
+                renderGallery();
+                loadHistory(currentMachine.guid); // Refresh history list
+            }
+        } catch(e) { alert("エラーが発生しました"); }
+        setLoading(false);
+    }
+
+    function compressImage(b64) {
+        return new Promise(r => {
+            const img = new Image(); img.onload=()=>{
+                const c = document.createElement('canvas'); const w = 1200; const h = w*(img.height/img.width);
+                c.width=w; c.height=h; c.getContext('2d').drawImage(img,0,0,w,h); r(c.toDataURL("image/jpeg", 0.7));
+            }; img.src=b64;
+        });
+    }
+
+    function setLoading(s, t="通信中...") { document.getElementById('loading').style.display=s?'flex':'none'; document.getElementById('loading-text').innerText=t; }
+    function setMode(m) { editMode = m; }
+    function goBack() { 
+        document.getElementById('view-info').classList.add('hidden');
+        document.getElementById('view-home').classList.remove('hidden');
+        document.getElementById('btn-back').classList.add('hidden');
+    }
+
+    async function loadCategories() {
+        const res = await fetch(`${API_URL}?action=getCategories`);
+        const data = await res.json();
+        document.getElementById('f-type').innerHTML = data.categories.map(c => `<option value="${c}">${c}</option>`).join('');
+    }
+
+    function startScanner() {
+    document.getElementById('scannerContainer').classList.remove('hidden');
+    
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        alert("このブラウザはカメラに対応していません。\nChrome または Safari をお使いください。");
+        stopScanner();
+        return;
+    }
+
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
+        .then(s => {
+            scanStream = s;
+            document.getElementById('video').srcObject = s;
+            document.getElementById('video').play();
+            requestAnimationFrame(tick);
+        })
+        .catch(err => {
+            stopScanner();
+            if (err.name === 'NotAllowedError') {
+                alert("カメラの許可が必要です。\nブラウザの設定でカメラを許可してください。");
+            } else if (err.name === 'NotFoundError') {
+                alert("カメラが見つかりません。");
+            } else {
+                alert("カメラエラー: " + err.message);
+            }
+        });
+}
+    function stopScanner() { if(scanStream) scanStream.getTracks().forEach(t=>t.stop()); document.getElementById('scannerContainer').classList.add('hidden'); }
+    function tick() {
+        const v = document.getElementById('video');
+        if(v.readyState === v.HAVE_ENOUGH_DATA) {
+            const c = document.createElement("canvas"); c.width=v.videoWidth; c.height=v.videoHeight;
+            c.getContext("2d").drawImage(v,0,0,c.width,c.height);
+            const code = jsQR(c.getContext("2d").getImageData(0,0,c.width,c.height).data, c.width, c.height);
+            if(code) { stopScanner(); loadMachine(code.data); return; }
+        }
+        if(!document.getElementById('scannerContainer').classList.contains('hidden')) requestAnimationFrame(tick);
+    }
+</script>
+<style> @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } } </style>
+</body>
+</html>
