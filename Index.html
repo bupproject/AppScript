@@ -117,12 +117,12 @@
 </div>
 
 <script>
-    const API_URL = "https://script.google.com/macros/s/AKfycbzF1FAEm8zDHplvwN8sNaTdnUIPVNgtNe4VvFH1FkPEi65E5piSIK679Zb3NLsEqi9e/exec"; // PASTE YOUR URL HERE
+    const API_URL = "YOUR_WEB_APP_URL"; // PASTE YOUR URL HERE
     let currentMachine = {}, photoQueue = [], myChart = null, scanStream = null;
     let canvas, ctx, originalImg, editMode = 'pen', activeIdx = null;
 
     function checkTeamCode() {
-        if(document.getElementById('teamCodeInput').value === "0001") {
+        if(document.getElementById('teamCodeInput').value === "skk.jp") {
             localStorage.setItem('skk_authorized', 'true');
             document.getElementById('view-lock').style.display='none';
             document.getElementById('main-ui').style.display='block';
@@ -296,32 +296,11 @@
     }
 
     function startScanner() {
-    document.getElementById('scannerContainer').classList.remove('hidden');
-    
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        alert("このブラウザはカメラに対応していません。\nChrome または Safari をお使いください。");
-        stopScanner();
-        return;
-    }
-
-    navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
-        .then(s => {
-            scanStream = s;
-            document.getElementById('video').srcObject = s;
-            document.getElementById('video').play();
-            requestAnimationFrame(tick);
-        })
-        .catch(err => {
-            stopScanner();
-            if (err.name === 'NotAllowedError') {
-                alert("カメラの許可が必要です。\nブラウザの設定でカメラを許可してください。");
-            } else if (err.name === 'NotFoundError') {
-                alert("カメラが見つかりません。");
-            } else {
-                alert("カメラエラー: " + err.message);
-            }
+        document.getElementById('scannerContainer').classList.remove('hidden');
+        navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } }).then(s => {
+            scanStream = s; document.getElementById('video').srcObject=s; document.getElementById('video').play(); requestAnimationFrame(tick);
         });
-}
+    }
     function stopScanner() { if(scanStream) scanStream.getTracks().forEach(t=>t.stop()); document.getElementById('scannerContainer').classList.add('hidden'); }
     function tick() {
         const v = document.getElementById('video');
