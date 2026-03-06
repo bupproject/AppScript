@@ -117,7 +117,7 @@
 </div>
 
 <script>
-    const API_URL = "YOUR_WEB_APP_URL"; // PASTE YOUR URL HERE
+    const API_URL = "https://script.google.com/macros/s/AKfycbzcB21gxEmOYNp6lqOSrZhC7DPA69MA1Nd5mp1QMqOIPDCEyh_f5iY-uoVBgK3fjWpn/exec"; // PASTE YOUR URL HERE
     let currentMachine = {}, photoQueue = [], myChart = null, scanStream = null;
     let canvas, ctx, originalImg, editMode = 'pen', activeIdx = null;
 
@@ -295,13 +295,99 @@
         document.getElementById('f-type').innerHTML = data.categories.map(c => `<option value="${c}">${c}</option>`).join('');
     }
 
-    function startScanner() {
-        document.getElementById('scannerContainer').classList.remove('hidden');
-        navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } }).then(s => {
-            scanStream = s; document.getElementById('video').srcObject=s; document.getElementById('video').play(); requestAnimationFrame(tick);
-        });
+    function getCameraErrorMessage(e) {
+        const name = e && e.name ? e.name : "UnknownError";
+        if (name === "NotAllowedError" || name === "PermissionDeniedError") return "Camera permission denied.";
+        if (name === "NotFoundError" || name === "DevicesNotFoundError") return "No camera device found.";
+        if (name === "NotReadableError" || name === "TrackStartError") return "Camera is busy (used by another app/browser tab).";
+        if (name === "OverconstrainedError" || name === "ConstraintNotSatisfiedError") return "Requested camera mode is not supported on this device.";
+        if (name === "SecurityError") return "Camera requires HTTPS and a standard browser context.";
+        return `Camera start failed: ${name}${e && e.message ? ` (${e.message})` : ""}`;
     }
-    function stopScanner() { if(scanStream) scanStream.getTracks().forEach(t=>t.stop()); document.getElementById('scannerContainer').classList.add('hidden'); }
+
+    function isEmbeddedContext() {
+        try {
+            return window.top !== window.self;
+        } catch (_) {
+            return true;
+        }
+    }
+
+    function isLikelyInAppBrowser() {
+        const ua = navigator.userAgent || "";
+        return /(Line|FBAN|FBAV|Instagram|Twitter|TikTok|wv|WebView)/i.test(ua);
+    }
+
+    function showExternalOpenGuide() {
+        const url = API_URL;
+        const msg = [
+            "This page is opened in an embedded/in-app browser.",
+            "Camera is often blocked in this mode.",
+            "",
+            "Please open directly in Chrome or Safari:",
+            url
+        ].join("\n");
+        alert(msg);
+
+        // Try to open the real web app URL directly.
+        window.open(url, "_blank");
+    }
+
+    async function startScanner() {
+        const container = document.getElementById('scannerContainer');
+        const video = document.getElementById('video');
+        
+        if (isEmbeddedContext() || isLikelyInAppBrowser()) {
+            showExternalOpenGuide();
+            return;
+        }
+
+        container.classList.remove('hidden');
+
+        try {
+            stopScanner();
+            container.classList.remove('hidden');
+
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                throw new Error("camera_api_not_supported");
+            }
+
+            // Some mobile browsers fail on strict rear-camera constraints, so fallback to generic video.
+            try {
+                scanStream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: { ideal: "environment" } },
+                    audio: false
+                });
+            } catch (_) {
+                scanStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+            }
+
+            video.setAttribute("autoplay", "");
+            video.setAttribute("muted", "");
+            video.setAttribute("playsinline", "");
+            video.muted = true;
+            video.srcObject = scanStream;
+
+            await new Promise((resolve) => {
+                video.onloadedmetadata = () => resolve();
+            });
+            await video.play();
+            requestAnimationFrame(tick);
+        } catch (e) {
+            stopScanner();
+            alert(`${getCameraErrorMessage(e)}\nUse Chrome/Safari directly, not in-app browser.`);
+            console.error("Camera start failed:", e);
+        }
+    }
+    function stopScanner() {
+        const video = document.getElementById('video');
+        if (scanStream) {
+            scanStream.getTracks().forEach(t => t.stop());
+            scanStream = null;
+        }
+        if (video) video.srcObject = null;
+        document.getElementById('scannerContainer').classList.add('hidden');
+    }
     function tick() {
         const v = document.getElementById('video');
         if(v.readyState === v.HAVE_ENOUGH_DATA) {
