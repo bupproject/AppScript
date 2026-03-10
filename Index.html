@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>SKK Maintenance Pro V2.8</title>
+    <title>SKK Maintenance Pro V3.0</title>
     <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
@@ -28,17 +28,20 @@
         .photo-thumb.active { border-color: var(--primary); }
         .gallery-item { position: relative; display: inline-block; margin-right: 8px; margin-bottom: 8px; }
         .del-btn { position: absolute; top: -8px; right: -8px; background: var(--danger); color: white; width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 2px solid white; font-size: 14px; z-index: 5; }
-        .hist-photo-link { display: inline-block; padding: 4px 8px; background: #e1f5fe; border: 1px solid #b3e5fc; border-radius: 5px; color: #0288d1; text-decoration: none; font-size: 11px; margin: 2px; font-weight: bold; }
+        .hist-photo-link { display: inline-block; padding: 6px 10px; border-radius: 6px; text-decoration: none; font-size: 11px; margin: 3px; font-weight: bold; color: #333; border: 1px solid #ddd; }
         .hidden { display: none; }
         .loading-overlay { position: fixed; top:0; left:0; width:100%; height:100%; background:rgba(255,255,255,0.9); z-index:9999; display:none; align-items:center; justify-content:center; flex-direction: column; }
         #editCanvas { background: #000; width: 100%; border-radius: 12px; touch-action: none; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .tool-btn { background: #636e72; color: white; }
+        .active-tool { background: var(--primary) !important; color: white; box-shadow: 0 0 0 3px rgba(9,132,227,0.4); }
     </style>
 </head>
 <body>
 
 <div id="loading" class="loading-overlay">
     <div style="border: 4px solid #f3f3f3; border-top: 4px solid var(--primary); border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite;"></div>
-    <div id="loading-text" style="margin-top:10px;">通信中...</div>
+    <div id="loading-text" style="margin-top:10px; font-weight:bold;">通信中...</div>
 </div>
 
 <div id="view-lock" class="container" style="text-align:center; padding-top: 50px;">
@@ -91,14 +94,21 @@
 
                 <div id="canvas-wrapper" class="hidden" style="margin-top:10px; background:#2d3436; padding:10px; border-radius:12px;">
                     <canvas id="editCanvas"></canvas>
-                    <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:5px; margin-top:10px;">
-                        <button class="btn btn-gray" onclick="setMode('pen')">✏️ ペン</button>
-                        <button class="btn btn-gray" onclick="setMode('text')">TXT</button>
+                    <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:5px; margin-top:10px;">
+                        <button id="tool-pen"   class="btn tool-btn active-tool" onclick="setMode('pen')">✏️ ペン</button>
+                        <button id="tool-arrow" class="btn tool-btn" onclick="setMode('arrow')">➡️ 矢印</button>
+                        <button id="tool-text"  class="btn tool-btn" onclick="setMode('text')">🔤 TXT</button>
+                    </div>
+                    <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:5px; margin-top:5px;">
+                        <button class="btn btn-gray" onclick="undoEdit()">↩ 戻る</button>
+                        <label class="btn btn-gray" style="display:flex;align-items:center;justify-content:center;gap:6px;cursor:pointer;">
+                            🎨 <input type="color" id="colorPicker" value="#ff0000" style="width:24px;height:24px;border:none;padding:0;cursor:pointer;background:none;">
+                        </label>
                         <button class="btn btn-blue" style="background:var(--success)" onclick="saveEdit()">✅ 完了</button>
                     </div>
                 </div>
                 
-                <button class="btn btn-blue" style="margin-top:20px; height:60px; font-size:18px;" onclick="doSubmit()">点検記録を保存</button>
+                <button id="btn-submit" class="btn btn-blue" style="margin-top:20px; height:60px; font-size:18px;" onclick="doSubmit()">点検記録を保存</button>
             </div>
 
             <div class="card">
@@ -117,12 +127,13 @@
 </div>
 
 <script>
-    const API_URL = "https://script.google.com/macros/s/AKfycbzcB21gxEmOYNp6lqOSrZhC7DPA69MA1Nd5mp1QMqOIPDCEyh_f5iY-uoVBgK3fjWpn/exec"; // PASTE YOUR URL HERE
+    // --- SETTINGS ---
+    const API_URL = "https://script.google.com/macros/s/AKfycbxKI6c0lQFYt-oqlDxacyKowUqkOqnYlhp6xu_Iz1kEnWSpBWkfSPhr1MbREcxXoCtI/exec"; 
     let currentMachine = {}, photoQueue = [], myChart = null, scanStream = null;
     let canvas, ctx, originalImg, editMode = 'pen', activeIdx = null;
 
     function checkTeamCode() {
-        if(document.getElementById('teamCodeInput').value === "skk.jp") {
+        if(document.getElementById('teamCodeInput').value === "0000") {
             localStorage.setItem('skk_authorized', 'true');
             document.getElementById('view-lock').style.display='none';
             document.getElementById('main-ui').style.display='block';
@@ -131,8 +142,9 @@
     }
     window.onload = () => { if(localStorage.getItem('skk_authorized')==='true') checkTeamCode(); };
 
+    // --- DATA LOADING ---
     async function loadMachine(guid) {
-        setLoading(true);
+        setLoading(true, "データ取得中...");
         try {
             const res = await fetch(`${API_URL}?action=getMachineByGUID&guid=${guid}`);
             const data = await res.json();
@@ -156,44 +168,47 @@
         setLoading(false);
     }
 
-    function renderLifeGauge(used, rem) {
-        document.getElementById('rem-years-val').innerText = rem;
-        const ctxChart = document.getElementById('lifeGaugeChart').getContext('2d');
-        if(myChart) myChart.destroy();
-        myChart = new Chart(ctxChart, {
-            type: 'doughnut',
-            data: { datasets: [{ data: [used, 100-used], backgroundColor: ['#0984e3', '#dfe6e9'], borderWidth: 0 }] },
-            options: { cutout: '85%', rotation: -90, circumference: 180, maintainAspectRatio: false }
-        });
-    }
-
     async function loadHistory(guid) {
         try {
             const res = await fetch(`${API_URL}?action=getMaintenanceHistory&guid=${guid}`);
             const data = await res.json();
             const container = document.getElementById('history-box');
+            
             container.innerHTML = data.history.length ? data.history.map(h => {
-                const links = h.photos ? h.photos.split("\n").map((url, i) => 
-                    `<a href="${url}" target="_blank" class="hist-photo-link">画像 ${i+1}</a>`).join('') : "";
+                const createLinks = (str, label, color) => {
+                    if(!str || str.trim() === "") return "";
+                    return str.split("\n").map((url, i) => 
+                        `<a href="${url}" target="_blank" class="hist-photo-link" style="background:${color};">${label} ${i+1}</a>`
+                    ).join('');
+                };
+
+                const editedLinks = createLinks(h.editedPhotos, "編集写真", "#fff3e0");
+                const originalLinks = createLinks(h.originalPhotos, "元写真", "#e1f5fe");
+
                 return `
-                <div style="padding:10px 0; border-bottom:1px solid #eee; font-size:13px;">
-                    <div style="color:#666">${h.date} | ${h.tech}</div>
-                    <b>${h.type}</b>: ${h.desc}
-                    <div style="margin-top:5px; display:flex; flex-wrap:wrap;">${links}</div>
+                <div style="padding:12px 0; border-bottom:1px solid #eee; font-size:13px;">
+                    <div style="color:#666; font-size:11px;">${h.date} | ${h.tech}</div>
+                    <div style="margin: 4px 0;"><b>${h.type}</b>: ${h.desc}</div>
+                    <div style="margin-top:8px;">
+                        ${editedLinks ? `<div style="font-size:10px; font-weight:bold; color:#e67e22; margin-bottom:2px;">【編集写真】</div><div style="display:flex; flex-wrap:wrap;">${editedLinks}</div>` : ""}
+                        ${originalLinks ? `<div style="font-size:10px; font-weight:bold; color:#2980b9; margin-top:5px; margin-bottom:2px;">【元写真】</div><div style="display:flex; flex-wrap:wrap;">${originalLinks}</div>` : ""}
+                    </div>
                 </div>`;
             }).join('') : "履歴はありません";
         } catch(e) { console.error("History Error"); }
     }
 
+    // --- PHOTO LOGIC ---
     async function handlePhotos(e) {
         const files = Array.from(e.target.files);
-        setLoading(true, "圧縮中...");
+        setLoading(true, "画像処理中...");
         for(let f of files) {
             const b64 = await new Promise(r => { const rd = new FileReader(); rd.onload=ev=>r(ev.target.result); rd.readAsDataURL(f); });
             const compressed = await compressImage(b64);
-            photoQueue.push({ original: compressed, edited: compressed });
+            photoQueue.push({ original: compressed, edited: compressed, isEdited: false });
         }
-        renderGallery(); setLoading(false);
+        renderGallery(); 
+        setLoading(false);
         e.target.value = ""; 
     }
 
@@ -202,11 +217,13 @@
             <div class="gallery-item">
                 <div class="del-btn" onclick="removePhoto(${i})">×</div>
                 <img src="${p.edited}" class="photo-thumb ${activeIdx===i?'active':''}" onclick="startEdit(${i})">
+                ${p.isEdited ? '<div style="position:absolute; bottom:2px; right:2px; background:var(--success); color:white; font-size:8px; padding:1px 4px; border-radius:4px;">EDITED</div>' : ''}
             </div>`).join('');
     }
 
-    function removePhoto(i) { photoQueue.splice(i,1); activeIdx=null; closeEditor(); renderGallery(); }
+    function removePhoto(i) { photoQueue.splice(i,1); if(activeIdx===i) closeEditor(); activeIdx=null; renderGallery(); }
 
+    // --- CANVAS EDITOR ---
     function startEdit(i) {
         activeIdx = i; renderGallery();
         originalImg = new Image();
@@ -223,33 +240,130 @@
     }
 
     function saveEdit() {
-        photoQueue[activeIdx].edited = canvas.toDataURL("image/jpeg", 0.7);
+        photoQueue[activeIdx].edited = canvas.toDataURL("image/jpeg", 0.5);
+        photoQueue[activeIdx].isEdited = true;
         closeEditor();
     }
     function closeEditor() { document.getElementById('canvas-wrapper').classList.add('hidden'); renderGallery(); }
 
+    let undoStack = [];
+
+    function saveSnapshot() {
+        undoStack.push(canvas.toDataURL());
+        if (undoStack.length > 20) undoStack.shift(); // keep max 20 steps
+    }
+
+    function undoEdit() {
+        if (undoStack.length === 0) return;
+        const prev = undoStack.pop();
+        const img = new Image();
+        img.onload = () => { ctx.clearRect(0, 0, canvas.width, canvas.height); ctx.drawImage(img, 0, 0); };
+        img.src = prev;
+    }
+
+    function getColor() { return document.getElementById('colorPicker').value; }
+
+    function setMode(m) {
+        editMode = m;
+        document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active-tool'));
+        const map = { pen: 'tool-pen', arrow: 'tool-arrow', text: 'tool-text' };
+        if (map[m]) document.getElementById(map[m]).classList.add('active-tool');
+    }
+
+    function drawArrow(x1, y1, x2, y2, color) {
+        const headLen = 28;
+        const angle = Math.atan2(y2 - y1, x2 - x1);
+        ctx.strokeStyle = color; ctx.fillStyle = color;
+        ctx.lineWidth = 6; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+        ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(x2, y2);
+        ctx.lineTo(x2 - headLen * Math.cos(angle - Math.PI/6), y2 - headLen * Math.sin(angle - Math.PI/6));
+        ctx.lineTo(x2 - headLen * Math.cos(angle + Math.PI/6), y2 - headLen * Math.sin(angle + Math.PI/6));
+        ctx.closePath(); ctx.fill();
+    }
+
     function initCanvas() {
-        ctx.strokeStyle = "red"; ctx.lineWidth = 10; ctx.lineJoin='round'; ctx.lineCap='round';
+        undoStack = [];
         const getXY = e => {
             const rect = canvas.getBoundingClientRect();
             const cx = e.touches ? e.touches[0].clientX : e.clientX;
             const cy = e.touches ? e.touches[0].clientY : e.clientY;
-            return { x: (cx-rect.left)*(canvas.width/rect.width), y: (cy-rect.top)*(canvas.height/rect.height) };
+            return { x: (cx - rect.left) * (canvas.width / rect.width), y: (cy - rect.top) * (canvas.height / rect.height) };
         };
+
+        let arrowStart = null;
+        let arrowSnapshot = null;
+
         canvas.onmousedown = canvas.ontouchstart = e => {
-            const {x,y} = getXY(e);
-            if(editMode==='text') { const t=prompt("文字:"); if(t){ ctx.fillStyle="red"; ctx.font="bold 60px sans-serif"; ctx.fillText(t,x,y); } }
-            else { ctx.beginPath(); ctx.moveTo(x,y); canvas.isDrawing=true; }
+            e.preventDefault();
+            const { x, y } = getXY(e);
+            const color = getColor();
+            if (editMode === 'text') {
+                const t = prompt("文字:");
+                if (t) {
+                    saveSnapshot();
+                    ctx.fillStyle = color;
+                    ctx.font = "bold 60px sans-serif";
+                    ctx.fillText(t, x, y);
+                }
+            } else if (editMode === 'arrow') {
+                saveSnapshot();
+                arrowStart = { x, y };
+                arrowSnapshot = canvas.toDataURL(); // base for live preview
+            } else {
+                saveSnapshot();
+                ctx.strokeStyle = color; ctx.lineWidth = 10; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+                ctx.beginPath(); ctx.moveTo(x, y);
+                canvas.isDrawing = true;
+            }
         };
-        canvas.onmousemove = canvas.ontouchmove = e => { if(canvas.isDrawing){ e.preventDefault(); const {x,y}=getXY(e); ctx.lineTo(x,y); ctx.stroke(); } };
-        const endDrawing = () => canvas.isDrawing=false;
-        window.onmouseup = window.ontouchend = endDrawing;
+
+        canvas.onmousemove = canvas.ontouchmove = e => {
+            e.preventDefault();
+            const { x, y } = getXY(e);
+            if (editMode === 'pen' && canvas.isDrawing) {
+                ctx.lineTo(x, y); ctx.stroke();
+            } else if (editMode === 'arrow' && arrowStart) {
+                // Live preview: redraw from snapshot then draw arrow
+                const snap = new Image();
+                snap.onload = () => {
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    ctx.drawImage(snap, 0, 0);
+                    drawArrow(arrowStart.x, arrowStart.y, x, y, getColor());
+                };
+                snap.src = arrowSnapshot;
+            }
+        };
+
+        const endAction = e => {
+            if (editMode === 'arrow' && arrowStart) {
+                const { x, y } = getXY(e);
+                // Final arrow drawn on mouseup/touchend
+                const snap = new Image();
+                snap.onload = () => {
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    ctx.drawImage(snap, 0, 0);
+                    drawArrow(arrowStart.x, arrowStart.y, x, y, getColor());
+                };
+                snap.src = arrowSnapshot;
+                arrowStart = null; arrowSnapshot = null;
+            }
+            canvas.isDrawing = false;
+        };
+        window.onmouseup = endAction;
+        window.ontouchend = e => { if(e.changedTouches) endAction({ clientX: e.changedTouches[0].clientX, clientY: e.changedTouches[0].clientY }); };
     }
 
+    // --- SUBMISSION ---
     async function doSubmit() {
         const tech = document.getElementById('f-tech').value;
         if(!tech || photoQueue.length === 0) return alert("名前と写真が必要です");
-        setLoading(true, "保存中...");
+        
+        const btn = document.getElementById('btn-submit');
+        btn.disabled = true;
+        setLoading(true, "保存中... (しばらくお待ちください)");
+        
         try {
             const res = await fetch(API_URL, {
                 method: 'POST',
@@ -261,17 +375,17 @@
             });
             const result = await res.json();
             if(result.success) { 
-                alert("保存しました"); 
-                // Clear the form only
+                alert("保存完了しました"); 
                 document.getElementById('f-desc').value = "";
-                photoQueue = [];
-                renderGallery();
-                loadHistory(currentMachine.guid); // Refresh history list
+                photoQueue = []; renderGallery();
+                loadHistory(currentMachine.guid);
             }
-        } catch(e) { alert("エラーが発生しました"); }
+        } catch(e) { alert("通信エラーが発生しました"); }
         setLoading(false);
+        btn.disabled = false;
     }
 
+    // --- HELPERS ---
     function compressImage(b64) {
         return new Promise(r => {
             const img = new Image(); img.onload=()=>{
@@ -281,13 +395,20 @@
         });
     }
 
-    function setLoading(s, t="通信中...") { document.getElementById('loading').style.display=s?'flex':'none'; document.getElementById('loading-text').innerText=t; }
-    function setMode(m) { editMode = m; }
-    function goBack() { 
-        document.getElementById('view-info').classList.add('hidden');
-        document.getElementById('view-home').classList.remove('hidden');
-        document.getElementById('btn-back').classList.add('hidden');
+    function renderLifeGauge(used, rem) {
+        document.getElementById('rem-years-val').innerText = rem;
+        const ctxChart = document.getElementById('lifeGaugeChart').getContext('2d');
+        if(myChart) myChart.destroy();
+        myChart = new Chart(ctxChart, {
+            type: 'doughnut',
+            data: { datasets: [{ data: [used, 100-used], backgroundColor: ['#0984e3', '#dfe6e9'], borderWidth: 0 }] },
+            options: { cutout: '85%', rotation: -90, circumference: 180, maintainAspectRatio: false, plugins: { tooltip: {enabled: false} } }
+        });
     }
+
+    function setLoading(s, t="通信中...") { document.getElementById('loading').style.display=s?'flex':'none'; document.getElementById('loading-text').innerText=t; }
+    // setMode is defined above with initCanvas
+    function goBack() { document.getElementById('view-info').classList.add('hidden'); document.getElementById('view-home').classList.remove('hidden'); document.getElementById('btn-back').classList.add('hidden'); }
 
     async function loadCategories() {
         const res = await fetch(`${API_URL}?action=getCategories`);
@@ -295,97 +416,20 @@
         document.getElementById('f-type').innerHTML = data.categories.map(c => `<option value="${c}">${c}</option>`).join('');
     }
 
-    function getCameraErrorMessage(e) {
-        const name = e && e.name ? e.name : "UnknownError";
-        if (name === "NotAllowedError" || name === "PermissionDeniedError") return "Camera permission denied.";
-        if (name === "NotFoundError" || name === "DevicesNotFoundError") return "No camera device found.";
-        if (name === "NotReadableError" || name === "TrackStartError") return "Camera is busy (used by another app/browser tab).";
-        if (name === "OverconstrainedError" || name === "ConstraintNotSatisfiedError") return "Requested camera mode is not supported on this device.";
-        if (name === "SecurityError") return "Camera requires HTTPS and a standard browser context.";
-        return `Camera start failed: ${name}${e && e.message ? ` (${e.message})` : ""}`;
-    }
-
-    function isEmbeddedContext() {
-        try {
-            return window.top !== window.self;
-        } catch (_) {
-            return true;
-        }
-    }
-
-    function isLikelyInAppBrowser() {
-        const ua = navigator.userAgent || "";
-        return /(Line|FBAN|FBAV|Instagram|Twitter|TikTok|wv|WebView)/i.test(ua);
-    }
-
-    function showExternalOpenGuide() {
-        const url = API_URL;
-        const msg = [
-            "This page is opened in an embedded/in-app browser.",
-            "Camera is often blocked in this mode.",
-            "",
-            "Please open directly in Chrome or Safari:",
-            url
-        ].join("\n");
-        alert(msg);
-
-        // Try to open the real web app URL directly.
-        window.open(url, "_blank");
-    }
-
+    // --- QR SCANNER (Standard Implementation) ---
     async function startScanner() {
         const container = document.getElementById('scannerContainer');
         const video = document.getElementById('video');
-        
-        if (isEmbeddedContext() || isLikelyInAppBrowser()) {
-            showExternalOpenGuide();
-            return;
-        }
-
         container.classList.remove('hidden');
-
         try {
-            stopScanner();
-            container.classList.remove('hidden');
-
-            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-                throw new Error("camera_api_not_supported");
-            }
-
-            // Some mobile browsers fail on strict rear-camera constraints, so fallback to generic video.
-            try {
-                scanStream = await navigator.mediaDevices.getUserMedia({
-                    video: { facingMode: { ideal: "environment" } },
-                    audio: false
-                });
-            } catch (_) {
-                scanStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-            }
-
-            video.setAttribute("autoplay", "");
-            video.setAttribute("muted", "");
-            video.setAttribute("playsinline", "");
-            video.muted = true;
+            scanStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
             video.srcObject = scanStream;
-
-            await new Promise((resolve) => {
-                video.onloadedmetadata = () => resolve();
-            });
-            await video.play();
+            video.play();
             requestAnimationFrame(tick);
-        } catch (e) {
-            stopScanner();
-            alert(`${getCameraErrorMessage(e)}\nUse Chrome/Safari directly, not in-app browser.`);
-            console.error("Camera start failed:", e);
-        }
+        } catch (e) { alert("カメラを起動できませんでした。HTTPS接続を確認してください。"); stopScanner(); }
     }
     function stopScanner() {
-        const video = document.getElementById('video');
-        if (scanStream) {
-            scanStream.getTracks().forEach(t => t.stop());
-            scanStream = null;
-        }
-        if (video) video.srcObject = null;
+        if (scanStream) scanStream.getTracks().forEach(t => t.stop());
         document.getElementById('scannerContainer').classList.add('hidden');
     }
     function tick() {
@@ -399,6 +443,5 @@
         if(!document.getElementById('scannerContainer').classList.contains('hidden')) requestAnimationFrame(tick);
     }
 </script>
-<style> @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } } </style>
 </body>
 </html>
