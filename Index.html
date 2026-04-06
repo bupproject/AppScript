@@ -128,7 +128,7 @@
 
 <script>
     // --- SETTINGS ---
-    const API_URL = "https://script.google.com/macros/s/AKfycbxKI6c0lQFYt-oqlDxacyKowUqkOqnYlhp6xu_Iz1kEnWSpBWkfSPhr1MbREcxXoCtI/exec"; 
+    const API_URL = "https://script.google.com/macros/s/AKfycbxKaHklVYlznNm_PrD0DfZRY2DllrqgnEEcPyLDGujG91k5IHCaABttNLQCHhwYLNkE/exec"; 
     let currentMachine = {}, photoQueue = [], myChart = null, scanStream = null;
     let canvas, ctx, originalImg, editMode = 'pen', activeIdx = null;
 
@@ -240,7 +240,7 @@
     }
 
     function saveEdit() {
-        photoQueue[activeIdx].edited = canvas.toDataURL("image/jpeg", 0.5);
+        photoQueue[activeIdx].edited = canvas.toDataURL("image/jpeg", 0.3);
         photoQueue[activeIdx].isEdited = true;
         closeEditor();
     }
